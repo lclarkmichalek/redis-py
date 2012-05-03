@@ -1,6 +1,15 @@
 import os
 import socket
-from itertools import chain, imap
+from itertools import chain
+from redis.compat import (
+    BytesIO,
+    MAJOR_VERSION,
+    unicode,
+    bytes,
+    long,
+    xrange,
+    unichr
+)
 from redis.exceptions import (
     RedisError,
     ConnectionError,
@@ -8,11 +17,6 @@ from redis.exceptions import (
     InvalidResponse,
     AuthenticationError
 )
-
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO
 
 try:
     import hiredis
@@ -35,7 +39,11 @@ class PythonParser(object):
 
     def on_connect(self, connection):
         "Called when the socket connects"
-        self._fp = connection._sock.makefile('r')
+        if MAJOR_VERSION >= 3:
+            mode = "rb"
+        else:
+            mode = "r"
+        self._fp = connection._sock.makefile(mode)
 
     def on_disconnect(self):
         "Called when the socket disconnects"
@@ -57,7 +65,7 @@ class PythonParser(object):
                     # https://github.com/andymccurdy/redis-py/issues/205
                     # read smaller chunks at a time to work around this
                     try:
-                        buf = StringIO()
+                        buf = BytesIO()
                         while bytes_left > 0:
                             read_len = min(bytes_left, self.MAX_READ_LENGTH)
                             buf.write(self._fp.read(read_len))
@@ -67,10 +75,9 @@ class PythonParser(object):
                     finally:
                         buf.close()
                 return self._fp.read(bytes_left)[:-2]
-
             # no length, read a full line
             return self._fp.readline()[:-2]
-        except (socket.error, socket.timeout), e:
+        except (socket.error, socket.timeout) as e:
             raise ConnectionError("Error while reading from socket: %s" % \
                 (e.args,))
 
@@ -80,13 +87,15 @@ class PythonParser(object):
             raise ConnectionError("Socket closed on remote end")
 
         byte, response = response[0], response[1:]
+        if MAJOR_VERSION >= 3:
+            byte = unichr(byte)
 
         # server returned an error
         if byte == '-':
-            if response.startswith('ERR '):
+            if response.startswith('ERR '.encode()):
                 response = response[4:]
                 return ResponseError(response)
-            if response.startswith('LOADING '):
+            if response.startswith('LOADING '.encode()):
                 # If we're loading the dataset into memory, kill the socket
                 # so we re-initialize (and re-SELECT) next time.
                 raise ConnectionError("Redis is loading data into memory")
@@ -140,7 +149,7 @@ class HiredisParser(object):
         while response is False:
             try:
                 buffer = self._sock.recv(4096)
-            except (socket.error, socket.timeout), e:
+            except (socket.error, socket.timeout) as e:
                 raise ConnectionError("Error while reading from socket: %s" % \
                     (e.args,))
             if not buffer:
@@ -187,7 +196,7 @@ class Connection(object):
             return
         try:
             sock = self._connect()
-        except socket.error, e:
+        except socket.error as e:
             raise ConnectionError(self._error_message(e))
 
         self._sock = sock
@@ -217,13 +226,13 @@ class Connection(object):
         # if a password is specified, authenticate
         if self.password:
             self.send_command('AUTH', self.password)
-            if self.read_response() != 'OK':
+            if self.read_response() != 'OK'.encode():
                 raise AuthenticationError('Invalid Password')
 
         # if a database is specified, switch to it
         if self.db:
             self.send_command('SELECT', self.db)
-            if self.read_response() != 'OK':
+            if self.read_response() != 'OK'.encode():
                 raise ConnectionError('Invalid Database')
 
     def disconnect(self):
@@ -242,8 +251,8 @@ class Connection(object):
         if not self._sock:
             self.connect()
         try:
-            self._sock.sendall(command)
-        except socket.error, e:
+            self._sock.sendall(self.encode(command))
+        except socket.error as e:
             self.disconnect()
             if len(e.args) == 1:
                 _errno, errmsg = 'UNKNOWN', e.args[0]
@@ -272,15 +281,27 @@ class Connection(object):
 
     def encode(self, value):
         "Return a bytestring representation of the value"
-        if isinstance(value, unicode):
-            return value.encode(self.encoding, self.encoding_errors)
-        return str(value)
+        if MAJOR_VERSION >= 3:
+            if isinstance(value, bytes):
+                return value
+            return unicode(value).encode(self.encoding, self.encoding_errors)
+        else:
+            if isinstance(value, unicode):
+                return value.encode(self.encoding, self.encoding_errors)
+            elif isinstance(value, bytes):
+                return value
+            else:
+                return str(value)
 
     def pack_command(self, *args):
         "Pack a series of arguments into a value Redis command"
-        command = ['$%s\r\n%s\r\n' % (len(enc_value), enc_value)
-                   for enc_value in imap(self.encode, args)]
-        return '*%s\r\n%s' % (len(command), ''.join(command))
+        encoded = list(map(self.encode, args))
+        nl = self.encode("\r\n")
+        command = [nl.join((self.encode("$" + str(len(val))), val))
+                   for val in encoded]
+        cmd = nl.join((self.encode('*' + str(len(command))),
+                            nl.join(command))) + nl
+        return cmd
 
 class UnixDomainSocketConnection(Connection):
     def __init__(self, path='', db=0, password=None,

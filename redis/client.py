@@ -2,7 +2,15 @@ from __future__ import with_statement
 import datetime
 import time
 import warnings
-from itertools import imap, izip, starmap
+from itertools import starmap
+from redis.compat import (
+    izip,
+    imap,
+    basestring,
+    bytes,
+    long,
+    iterd,
+)
 from redis.connection import ConnectionPool, UnixDomainSocketConnection
 from redis.exceptions import (
     ConnectionError,
@@ -48,6 +56,7 @@ def parse_debug_object(response):
     "Parse the results of Redis's DEBUG OBJECT command into a Python dict"
     # The 'type' of the object is the first item in the response, but isn't
     # prefixed with a name
+    response = response.decode()
     response = 'type:' + response
     response = dict([kv.split(':') for kv in response.split()])
 
@@ -69,6 +78,9 @@ def parse_object(response, infotype):
 def parse_info(response):
     "Parse the result of Redis's INFO command into a Python dict"
     info = {}
+
+    if isinstance(response, bytes):
+        response = response.decode()
 
     def get_value(value):
         if ',' not in value or '=' not in value:
@@ -109,7 +121,7 @@ def zset_score_pairs(response, **options):
         return response
     score_cast_func = options.get('score_cast_func', float)
     it = iter(response)
-    return zip(it, imap(score_cast_func, it))
+    return list(zip(it, imap(score_cast_func, it)))
 
 def int_or_none(response):
     if response is None:
@@ -124,8 +136,10 @@ def float_or_none(response):
 def parse_config(response, **options):
     # this is stupid, but don't have a better option right now
     if options['parse'] == 'GET':
-        return response and pairs_to_dict(response) or {}
-    return response == 'OK'
+        decoded = [k.decode() if isinstance(k, bytes) else k
+                   for k in response]
+        return decoded and pairs_to_dict(decoded) or {}
+    return response == 'OK'.encode()
 
 class StrictRedis(object):
     """
@@ -152,13 +166,13 @@ class StrictRedis(object):
         string_keys_to_dict(
             # these return OK, or int if redis-server is >=1.3.4
             'LPUSH RPUSH',
-            lambda r: isinstance(r, long) and r or r == 'OK'
+            lambda r: isinstance(r, long) and r or r == 'OK'.encode()
             ),
         string_keys_to_dict('ZSCORE ZINCRBY', float_or_none),
         string_keys_to_dict(
             'FLUSHALL FLUSHDB LSET LTRIM MSET RENAME '
             'SAVE SELECT SET SHUTDOWN SLAVEOF WATCH UNWATCH',
-            lambda r: r == 'OK'
+            lambda r: r == 'OK'.encode()
             ),
         string_keys_to_dict('BLPOP BRPOP', lambda r: r and tuple(r) or None),
         string_keys_to_dict('SDIFF SINTER SMEMBERS SUNION',
@@ -179,7 +193,7 @@ class StrictRedis(object):
             'INFO': parse_info,
             'LASTSAVE': timestamp_to_datetime,
             'OBJECT': parse_object,
-            'PING': lambda r: r == 'PONG',
+            'PING': lambda r: r == 'PONG'.encode(),
             'RANDOMKEY': lambda r: r and r or None,
         }
         )
@@ -464,7 +478,7 @@ class StrictRedis(object):
     def mset(self, mapping):
         "Sets each key in the ``mapping`` dict to its corresponding value"
         items = []
-        for pair in mapping.iteritems():
+        for pair in iterd(mapping):
             items.extend(pair)
         return self.execute_command('MSET', *items)
 
@@ -474,7 +488,7 @@ class StrictRedis(object):
         none of the keys are already set
         """
         items = []
-        for pair in mapping.iteritems():
+        for pair in iterd(mapping):
             items.extend(pair)
         return self.execute_command('MSETNX', *items)
 
@@ -554,7 +568,9 @@ class StrictRedis(object):
 
     def type(self, name):
         "Returns the type of key ``name``"
-        return self.execute_command('TYPE', name)
+        typ = self.execute_command('TYPE', name)
+        # Ok, because not decoding user data
+        return typ.decode()
 
     def watch(self, *names):
         """
@@ -858,7 +874,7 @@ class StrictRedis(object):
                 raise RedisError("ZADD requires an equal number of "
                                  "values and scores")
             pieces.extend(args)
-        for pair in kwargs.iteritems():
+        for pair in iterd(kwargs):
             pieces.append(pair[1])
             pieces.append(pair[0])
         return self.execute_command('ZADD', name, *pieces)
@@ -1086,7 +1102,7 @@ class StrictRedis(object):
         if not mapping:
             raise DataError("'hmset' with 'mapping' of length 0")
         items = []
-        for pair in mapping.iteritems():
+        for pair in iterd(mapping):
             items.extend(pair)
         return self.execute_command('HMSET', name, *items)
 
@@ -1181,7 +1197,7 @@ class Redis(StrictRedis):
                 raise RedisError("ZADD requires an equal number of "
                                  "values and scores")
             pieces.extend(reversed(args))
-        for pair in kwargs.iteritems():
+        for pair in iterd(kwargs):
             pieces.append(pair[1])
             pieces.append(pair[0])
         return self.execute_command('ZADD', name, *pieces)
@@ -1250,7 +1266,7 @@ class PubSub(object):
     def parse_response(self):
         "Parse the response from a publish/subscribe command"
         response = self.connection.read_response()
-        if response[0] in self.subscribe_commands:
+        if response[0].decode() in self.subscribe_commands:
             self.subscription_count = response[2]
             # if we've just unsubscribed from the remaining channels,
             # release the connection back to the pool
@@ -1450,8 +1466,8 @@ class BasePipeline(object):
         return self
 
     def _execute_transaction(self, connection, commands):
-        all_cmds = ''.join(starmap(connection.pack_command,
-                                   [args for args, options in commands]))
+        all_cmds = ''.encode().join(starmap(connection.pack_command,
+                                  [args for args, options in commands]))
         connection.send_packed_command(all_cmds)
         # we don't care about the multi/exec any longer
         commands = commands[1:-1]
@@ -1482,8 +1498,8 @@ class BasePipeline(object):
 
     def _execute_pipeline(self, connection, commands):
         # build up all commands into a single request to increase network perf
-        all_cmds = ''.join(starmap(connection.pack_command,
-                                   [args for args, options in commands]))
+        all_cmds = ''.encode().join(starmap(connection.pack_command,
+                                    [args for args, options in commands]))
         connection.send_packed_command(all_cmds)
         return [self.parse_response(connection, args[0], **options)
                 for args, options in commands]
