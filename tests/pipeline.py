@@ -17,11 +17,11 @@ class PipelineTestCase(unittest.TestCase):
             self.assertEquals(pipe.execute(),
                 [
                     True,
-                    'a1',
+                    'a1'.encode(),
                     True,
                     True,
                     2.0,
-                    [('z1', 2.0), ('z2', 4)],
+                    [('z1'.encode(), 2.0), ('z2'.encode(), 4)],
                 ]
                 )
 
@@ -29,9 +29,9 @@ class PipelineTestCase(unittest.TestCase):
         with self.client.pipeline(transaction=False) as pipe:
             pipe.set('a', 'a1').set('b', 'b1').set('c', 'c1')
             self.assertEquals(pipe.execute(), [True, True, True])
-            self.assertEquals(self.client['a'], 'a1')
-            self.assertEquals(self.client['b'], 'b1')
-            self.assertEquals(self.client['c'], 'c1')
+            self.assertEquals(self.client['a'], 'a1'.encode())
+            self.assertEquals(self.client['b'], 'b1'.encode())
+            self.assertEquals(self.client['c'], 'c1'.encode())
 
     def test_pipeline_no_transaction_watch(self):
         self.client.set('a', 0)
@@ -66,19 +66,19 @@ class PipelineTestCase(unittest.TestCase):
             result = pipe.execute()
 
             self.assertEquals(result[0], True)
-            self.assertEquals(self.client['a'], '1')
+            self.assertEquals(self.client['a'], '1'.encode())
             self.assertEquals(result[1], True)
-            self.assertEquals(self.client['b'], '2')
+            self.assertEquals(self.client['b'], '2'.encode())
             # we can't lpush to a key that's a string value, so this should
             # be a ResponseError exception
             self.assert_(isinstance(result[2], redis.ResponseError))
-            self.assertEquals(self.client['c'], 'a')
+            self.assertEquals(self.client['c'], 'a'.encode())
             self.assertEquals(result[3], True)
-            self.assertEquals(self.client['d'], '4')
+            self.assertEquals(self.client['d'], '4'.encode())
 
             # make sure the pipe was restored to a working state
             self.assertEquals(pipe.set('z', 'zzz').execute(), [True])
-            self.assertEquals(self.client['z'], 'zzz')
+            self.assertEquals(self.client['z'], 'zzz'.encode())
 
     def test_watch_succeed(self):
         self.client.set('a', 1)
@@ -89,8 +89,8 @@ class PipelineTestCase(unittest.TestCase):
             self.assertEquals(pipe.watching, True)
             a = pipe.get('a')
             b = pipe.get('b')
-            self.assertEquals(a, '1')
-            self.assertEquals(b, '2')
+            self.assertEquals(a, '1'.encode())
+            self.assertEquals(b, '2'.encode())
             pipe.multi()
 
             pipe.set('c', 3)
@@ -119,7 +119,7 @@ class PipelineTestCase(unittest.TestCase):
             pipe.unwatch()
             self.assertEquals(pipe.watching, False)
             pipe.get('a')
-            self.assertEquals(pipe.execute(), ['1'])
+            self.assertEquals(pipe.execute(), ['1'.encode()])
 
     def test_transaction_callable(self):
         self.client.set('a', 1)
@@ -128,9 +128,9 @@ class PipelineTestCase(unittest.TestCase):
 
         def my_transaction(pipe):
             a = pipe.get('a')
-            self.assert_(a in ('1', '2'))
+            self.assert_(a in ('1'.encode(), '2'.encode()))
             b = pipe.get('b')
-            self.assertEquals(b, '2')
+            self.assertEquals(b, '2'.encode())
 
             # silly one-once code... incr's a so WatchError should be raised
             # forcing this all to run again
@@ -143,4 +143,4 @@ class PipelineTestCase(unittest.TestCase):
 
         result = self.client.transaction(my_transaction, 'a', 'b')
         self.assertEquals(result, [True])
-        self.assertEquals(self.client.get('c'), '4')
+        self.assertEquals(self.client.get('c'), '4'.encode())

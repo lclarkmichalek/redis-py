@@ -3,6 +3,8 @@ import unittest
 
 from redis.exceptions import ConnectionError
 
+encode = lambda s: s.encode()
+
 class PubSubTestCase(unittest.TestCase):
     def setUp(self):
         self.connection_pool = redis.ConnectionPool()
@@ -15,41 +17,41 @@ class PubSubTestCase(unittest.TestCase):
     def test_channel_subscribe(self):
         self.assertEquals(
             self.pubsub.subscribe('foo'),
-            ['subscribe', 'foo', 1]
+            ['subscribe'.encode(), 'foo'.encode(), 1]
             )
         self.assertEquals(self.client.publish('foo', 'hello foo'), 1)
         self.assertEquals(
-            self.pubsub.listen().next(),
+            next(self.pubsub.listen()),
             {
-                'type': 'message',
+                'type': 'message'.encode(),
                 'pattern': None,
-                'channel': 'foo',
-                'data': 'hello foo'
+                'channel': 'foo'.encode(),
+                'data': 'hello foo'.encode()
             }
             )
         self.assertEquals(
             self.pubsub.unsubscribe('foo'),
-            ['unsubscribe', 'foo', 0]
+            ['unsubscribe'.encode(), 'foo'.encode(), 0]
             )
 
     def test_pattern_subscribe(self):
         self.assertEquals(
             self.pubsub.psubscribe('fo*'),
-            ['psubscribe', 'fo*', 1]
+            ['psubscribe'.encode(), 'fo*'.encode(), 1]
             )
         self.assertEquals(self.client.publish('foo', 'hello foo'), 1)
         self.assertEquals(
-            self.pubsub.listen().next(),
+            next(self.pubsub.listen()),
             {
-                'type': 'pmessage',
-                'pattern': 'fo*',
-                'channel': 'foo',
-                'data': 'hello foo'
+                'type': 'pmessage'.encode(),
+                'pattern': 'fo*'.encode(),
+                'channel': 'foo'.encode(),
+                'data': 'hello foo'.encode()
             }
             )
         self.assertEquals(
             self.pubsub.punsubscribe('fo*'),
-            ['punsubscribe', 'fo*', 0]
+            ['punsubscribe'.encode(), 'fo*'.encode(), 0]
             )
 
 class PubSubRedisDownTestCase(unittest.TestCase):
