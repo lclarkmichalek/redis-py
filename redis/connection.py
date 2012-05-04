@@ -1,3 +1,4 @@
+import sys
 import os
 import socket
 from itertools import chain
@@ -77,7 +78,8 @@ class PythonParser(object):
                 return self._fp.read(bytes_left)[:-2]
             # no length, read a full line
             return self._fp.readline()[:-2]
-        except (socket.error, socket.timeout) as e:
+        except (socket.error, socket.timeout):
+            e = sys.exc_info()[1]
             raise ConnectionError("Error while reading from socket: %s" % \
                 (e.args,))
 
@@ -149,7 +151,8 @@ class HiredisParser(object):
         while response is False:
             try:
                 buffer = self._sock.recv(4096)
-            except (socket.error, socket.timeout) as e:
+            except (socket.error, socket.timeout):
+                e = sys.exc_info()[1]
                 raise ConnectionError("Error while reading from socket: %s" % \
                     (e.args,))
             if not buffer:
@@ -196,7 +199,8 @@ class Connection(object):
             return
         try:
             sock = self._connect()
-        except socket.error as e:
+        except socket.error:
+            e = sys.exc_info()[1]
             raise ConnectionError(self._error_message(e))
 
         self._sock = sock
@@ -252,7 +256,8 @@ class Connection(object):
             self.connect()
         try:
             self._sock.sendall(self.encode(command))
-        except socket.error as e:
+        except socket.error:
+            e = sys.exc_info()[1]
             self.disconnect()
             if len(e.args) == 1:
                 _errno, errmsg = 'UNKNOWN', e.args[0]
