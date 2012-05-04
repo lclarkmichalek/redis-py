@@ -1,9 +1,10 @@
 import sys
 
 __all__ = ['basestring', 'bytes', 'imap', 'izip', 'long', 'unicode',
-           'unichr', 'BytesIO', 'iterd', 'xrange']
+           'unichr', 'BytesIO', 'iterd', 'xrange', 'next']
 
 MAJOR_VERSION = sys.version_info[0]
+MINOR_VERSION = sys.version_info[1]
 
 if MAJOR_VERSION >= 3:
     basestring = str
@@ -17,6 +18,7 @@ if MAJOR_VERSION >= 3:
     from io import BytesIO
 
     iterd = lambda d: d.items()
+    next = next
 else:
     from itertools import imap, izip
 
@@ -38,3 +40,7 @@ else:
     BytesIO = StringIO
 
     iterd = lambda d: d.iteritems()
+    if MINOR_VERSION >= 6:
+        next = next
+    else:
+        next = lambda i: i.next()

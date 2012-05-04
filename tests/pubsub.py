@@ -2,6 +2,7 @@ import redis
 import unittest
 
 from redis.exceptions import ConnectionError
+from redis.compat import next
 
 encode = lambda s: s.encode()
 
