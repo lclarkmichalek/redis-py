@@ -3,7 +3,7 @@ import sys
 __all__ = ['basestring', 'bytes', 'imap', 'izip', 'long', 'unicode',
            'unichr', 'BytesIO', 'iterd', 'xrange']
 
-MAJOR_VERSION = sys.version_info.major
+MAJOR_VERSION = sys.version_info[0]
 
 if MAJOR_VERSION >= 3:
     basestring = str
