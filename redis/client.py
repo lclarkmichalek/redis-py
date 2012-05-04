@@ -1322,7 +1322,7 @@ class PubSub(object):
         "Listen for messages on channels this client has been subscribed to"
         while self.subscription_count:
             r = self.parse_response()
-            if r[0] == 'pmessage':
+            if r[0] == 'pmessage'.encode():
                 msg = {
                     'type': r[0],
                     'pattern': r[1],
