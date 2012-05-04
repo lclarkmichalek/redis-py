@@ -160,7 +160,7 @@ class HiredisParser(object):
             self._reader.feed(buffer)
             # proactively, but not conclusively, check if more data is in the
             # buffer. if the data received doesn't end with \n, there's more.
-            if not buffer.endswith('\n'):
+            if not buffer.endswith('\n'.encode()):
                 continue
             response = self._reader.gets()
         return response
